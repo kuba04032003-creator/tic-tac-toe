@@ -35,14 +35,14 @@ Return ONLY the image prompt, nothing else. No quotes.`,
     ? promptMsg.content[0].text.trim()
     : `Professional editorial photo for article about ${keyword || title}`
 
-  // Call Flux Schnell on Replicate
-  const output = await replicate.run('black-forest-labs/flux-schnell', {
+  // Call Flux Pro on Replicate (best quality)
+  const output = await replicate.run('black-forest-labs/flux-pro', {
     input: {
       prompt: imagePrompt,
-      num_outputs: 1,
       aspect_ratio: '16:9',
       output_format: 'webp',
-      output_quality: 85,
+      output_quality: 90,
+      safety_tolerance: 2,
     },
   })
 
