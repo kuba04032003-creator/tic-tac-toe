@@ -3,7 +3,12 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Wand2, Loader2 } from 'lucide-react'
+import { ArrowLeft, Wand2, Loader2, Sparkles } from 'lucide-react'
+
+function isQuestion(text: string) {
+  return /^(how|why|what|who|when|where|should|is|are|can|does|do|which|best|compare)\b/i.test(text.trim()) ||
+    text.trim().endsWith('?')
+}
 
 interface Project { id: string; name: string }
 
@@ -131,7 +136,14 @@ export default function NewArticleClient({
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
               placeholder="e.g. seo tools for small business"
             />
-            <p className="text-xs text-gray-400 mt-1">Enter at least one of title or keyword.</p>
+            {isQuestion(form.keyword) ? (
+              <p className="text-xs text-indigo-600 mt-1 flex items-center gap-1 font-medium">
+                <Sparkles className="w-3 h-3" />
+                Sentence detected — article will be structured with direct answers, Q&amp;A headings and FAQ
+              </p>
+            ) : (
+              <p className="text-xs text-gray-400 mt-1">Enter a keyword or a full question sentence for AI-optimised structure.</p>
+            )}
           </div>
 
           {projects.length > 0 && (
