@@ -15,13 +15,18 @@ start chrome tictactoe.html
 
 ## Git workflow
 
-After every change: commit locally with a clean message and push to GitHub.
+**After every change, commit and push to GitHub immediately.** Never leave work uncommitted — the goal is that GitHub always reflects the latest state so nothing is ever lost and any version can be reverted to.
 
 ```
 git add <file>
 git commit -m "Short imperative description"
 git push
 ```
+
+Commit message rules:
+- Use the imperative mood: "Add", "Fix", "Update" — not "Added" or "Adds"
+- First line under 72 characters, describing *what and why*, not *how*
+- Include `Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>` in the body
 
 Remote: https://github.com/kuba04032003-creator/tic-tac-toe
 
