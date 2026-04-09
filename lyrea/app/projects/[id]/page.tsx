@@ -1,11 +1,14 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, PenSquare, Plus, Globe, Clock } from 'lucide-react'
+import { ArrowLeft, PenSquare, Plus, Globe, Clock, Mic } from 'lucide-react'
+import BrandVoiceForm from '@/components/settings/BrandVoiceForm'
 
 export default async function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
 
   const { data: project } = await supabase
     .from('projects')
@@ -20,6 +23,13 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
     .select('*')
     .eq('project_id', id)
     .order('updated_at', { ascending: false })
+
+  const { data: brandVoice } = await supabase
+    .from('brand_voices')
+    .select('*')
+    .eq('user_id', user!.id)
+    .eq('project_id', id)
+    .single()
 
   return (
     <div className="p-8">
@@ -55,6 +65,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         <p className="text-gray-500 text-sm mb-8 max-w-2xl">{project.description}</p>
       )}
 
+      {/* Articles */}
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
           Articles ({articles?.length ?? 0})
@@ -62,7 +73,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
       </div>
 
       {articles && articles.length > 0 ? (
-        <div className="max-w-3xl space-y-3">
+        <div className="max-w-3xl space-y-3 mb-10">
           {articles.map(article => (
             <Link
               key={article.id}
@@ -90,7 +101,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
           ))}
         </div>
       ) : (
-        <div className="max-w-md text-center py-12 bg-white rounded-xl border border-dashed border-gray-200">
+        <div className="max-w-md text-center py-12 bg-white rounded-xl border border-dashed border-gray-200 mb-10">
           <PenSquare className="w-8 h-8 text-gray-300 mx-auto mb-3" />
           <p className="text-gray-500 text-sm mb-3">No articles for this project yet.</p>
           <Link
@@ -102,6 +113,20 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
           </Link>
         </div>
       )}
+
+      {/* Project Brand Voice */}
+      <div className="max-w-2xl">
+        <div className="flex items-center gap-2 mb-1">
+          <Mic className="w-4 h-4 text-indigo-500" />
+          <h2 className="text-lg font-semibold text-gray-900">Project Brand Voice</h2>
+        </div>
+        <p className="text-sm text-gray-500 mb-5">
+          Override global brand voice for articles in this project. Leaves global settings untouched.
+        </p>
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <BrandVoiceForm existing={brandVoice ?? null} userId={user!.id} projectId={id} />
+        </div>
+      </div>
     </div>
   )
 }

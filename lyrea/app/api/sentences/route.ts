@@ -45,6 +45,18 @@ Return ONLY a valid JSON array of 20 objects, no other text.`
 
   try {
     const sentences = JSON.parse(text.replace(/```json|```/g, '').trim())
+
+    // Save search to DB (graceful failure if table not created yet)
+    try {
+      await supabase.from('sentence_searches').insert({
+        user_id: user.id,
+        topic,
+        industry: industry || null,
+        language: language || 'English',
+        sentences,
+      })
+    } catch (_) { /* table may not exist yet — run SQL in Supabase */ }
+
     return Response.json({ sentences })
   } catch {
     return new Response('Failed to parse response', { status: 500 })

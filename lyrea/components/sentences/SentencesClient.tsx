@@ -82,8 +82,21 @@ export default function SentencesClient({ projects }: { projects: Project[] }) {
     }
   }
 
-  function writeArticle(sentence: string) {
-    const params = new URLSearchParams({ keyword: sentence })
+  function writeArticle(s: Sentence) {
+    // Fire-and-forget save of the use event
+    fetch('/api/sentence-use', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sentence: s.sentence,
+        sentence_type: s.type,
+        ai_potential: s.ai_potential,
+        topic: topic.trim(),
+        industry: selectedProject?.industry ?? '',
+      }),
+    }).catch(() => {})
+
+    const params = new URLSearchParams({ keyword: s.sentence })
     if (projectId) params.set('project', projectId)
     window.location.href = `/writer/new?${params}`
   }
@@ -193,7 +206,7 @@ export default function SentencesClient({ projects }: { projects: Project[] }) {
                     </div>
                   </div>
                   <button
-                    onClick={() => writeArticle(s.sentence)}
+                    onClick={() => writeArticle(s)}
                     className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-medium opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 mt-1 whitespace-nowrap"
                   >
                     Write article <ArrowRight className="w-3 h-3" />

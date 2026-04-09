@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useEditor, EditorContent, type Editor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
@@ -10,7 +10,7 @@ import {
   ArrowLeft, Save, Check, Loader2,
   Bold, Italic, Heading2, Heading3,
   List, ListOrdered, Quote, Minus,
-  Copy, Globe, FileText,
+  Copy, Globe, FileText, RefreshCw, Send, X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -170,6 +170,13 @@ function htmlToMarkdown(html: string): string {
     .trim()
 }
 
+const TONES = ['Professional', 'Casual', 'Authoritative', 'Friendly', 'Technical']
+const LENGTHS = [
+  { value: 'short', label: 'Short' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'long', label: 'Long' },
+]
+
 export default function ArticleEditor({ article }: { article: Article }) {
   const [title, setTitle] = useState(article.title || '')
   const [status, setStatus] = useState(article.status || 'draft')
@@ -177,6 +184,20 @@ export default function ArticleEditor({ article }: { article: Article }) {
   const [saved, setSaved] = useState(false)
   const [copied, setCopied] = useState(false)
   const [wordCount, setWordCount] = useState(0)
+
+  // Regenerate state
+  const [showRegenMenu, setShowRegenMenu] = useState(false)
+  const [regenTone, setRegenTone] = useState('Professional')
+  const [regenLength, setRegenLength] = useState('medium')
+  const [regenerating, setRegenerating] = useState(false)
+  const regenRef = useRef<HTMLDivElement>(null)
+
+  // WordPress publish state
+  const [showWpModal, setShowWpModal] = useState(false)
+  const [wpForm, setWpForm] = useState({ siteUrl: '', username: '', appPassword: '', wpStatus: 'draft' })
+  const [wpPublishing, setWpPublishing] = useState(false)
+  const [wpResult, setWpResult] = useState<{ link: string } | null>(null)
+  const [wpError, setWpError] = useState('')
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -233,6 +254,83 @@ export default function ArticleEditor({ article }: { article: Article }) {
     setTimeout(() => setCopied(false), 2000)
   }
 
+  async function handleRegenerate() {
+    if (!editor || !article.keyword) return
+    setRegenerating(true)
+    setShowRegenMenu(false)
+
+    try {
+      const genRes = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          keyword: article.keyword,
+          tone: regenTone,
+          length: regenLength,
+        }),
+      })
+
+      if (!genRes.ok) throw new Error('Generation failed')
+
+      const reader = genRes.body!.getReader()
+      const decoder = new TextDecoder()
+      let content = ''
+
+      editor.commands.clearContent()
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        content += decoder.decode(value, { stream: true })
+        editor.commands.setContent(markdownToHtml(content))
+      }
+
+      await fetch(`/api/articles/${article.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      })
+    } catch (_) { /* noop */ }
+
+    setRegenerating(false)
+  }
+
+  async function handleWpPublish(e: React.FormEvent) {
+    e.preventDefault()
+    if (!editor) return
+    setWpPublishing(true)
+    setWpError('')
+    setWpResult(null)
+
+    try {
+      const res = await fetch('/api/wordpress', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          siteUrl: wpForm.siteUrl,
+          username: wpForm.username,
+          appPassword: wpForm.appPassword,
+          title,
+          content: editor.getHTML(),
+          status: wpForm.wpStatus,
+        }),
+      })
+
+      if (!res.ok) {
+        const err = await res.text()
+        throw new Error(err)
+      }
+
+      const data = await res.json()
+      setWpResult(data)
+    } catch (err) {
+      setWpError(err instanceof Error ? err.message : 'Publish failed')
+    }
+
+    setWpPublishing(false)
+  }
+
   useEffect(() => {
     const interval = setInterval(save, 30000)
     return () => clearInterval(interval)
@@ -248,6 +346,17 @@ export default function ArticleEditor({ article }: { article: Article }) {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [save])
+
+  // Close regen menu on outside click
+  useEffect(() => {
+    function onClick(e: MouseEvent) {
+      if (regenRef.current && !regenRef.current.contains(e.target as Node)) {
+        setShowRegenMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [])
 
   const readingTime = Math.max(1, Math.round(wordCount / 200))
 
@@ -272,6 +381,89 @@ export default function ArticleEditor({ article }: { article: Article }) {
               {article.keyword}
             </span>
           )}
+
+          {/* Regenerate */}
+          {article.keyword && (
+            <div className="relative" ref={regenRef}>
+              <button
+                onClick={() => setShowRegenMenu(v => !v)}
+                disabled={regenerating}
+                title="Regenerate article"
+                className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
+              >
+                {regenerating
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <RefreshCw className="w-3.5 h-3.5" />}
+                {regenerating ? 'Generating...' : 'Regenerate'}
+              </button>
+
+              {showRegenMenu && (
+                <div className="absolute right-0 top-full mt-2 w-64 bg-white border border-gray-200 rounded-xl shadow-lg p-4 z-10">
+                  <p className="text-xs font-semibold text-gray-700 mb-3">Regenerate with new settings</p>
+
+                  <div className="mb-3">
+                    <p className="text-xs text-gray-500 mb-1.5">Tone</p>
+                    <div className="flex flex-wrap gap-1">
+                      {TONES.map(t => (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => setRegenTone(t)}
+                          className={cn(
+                            'px-2 py-1 rounded text-xs font-medium border transition-colors',
+                            regenTone === t
+                              ? 'bg-indigo-600 text-white border-indigo-600'
+                              : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300'
+                          )}
+                        >
+                          {t}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mb-4">
+                    <p className="text-xs text-gray-500 mb-1.5">Length</p>
+                    <div className="flex gap-1">
+                      {LENGTHS.map(l => (
+                        <button
+                          key={l.value}
+                          type="button"
+                          onClick={() => setRegenLength(l.value)}
+                          className={cn(
+                            'flex-1 px-2 py-1 rounded text-xs font-medium border transition-colors',
+                            regenLength === l.value
+                              ? 'bg-indigo-600 text-white border-indigo-600'
+                              : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300'
+                          )}
+                        >
+                          {l.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleRegenerate}
+                    className="w-full bg-indigo-600 text-white text-xs font-medium py-2 rounded-lg hover:bg-indigo-700 transition-colors"
+                  >
+                    Regenerate now
+                  </button>
+                  <p className="text-xs text-gray-400 mt-2 text-center">This will replace the current content</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* WordPress publish */}
+          <button
+            onClick={() => { setShowWpModal(true); setWpResult(null); setWpError('') }}
+            title="Publish to WordPress"
+            className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
+          >
+            <Send className="w-3.5 h-3.5" />
+            To WordPress
+          </button>
 
           <button
             onClick={copyAsMarkdown}
@@ -325,6 +517,116 @@ export default function ArticleEditor({ article }: { article: Article }) {
           <EditorContent editor={editor} />
         </div>
       </div>
+
+      {/* WordPress Modal */}
+      {showWpModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-gray-900">Publish to WordPress</h2>
+              <button onClick={() => setShowWpModal(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {wpResult ? (
+              <div className="text-center py-4">
+                <Check className="w-10 h-10 text-green-500 mx-auto mb-3" />
+                <p className="font-semibold text-gray-900 mb-1">Published!</p>
+                <a
+                  href={wpResult.link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-indigo-600 hover:underline break-all"
+                >
+                  {wpResult.link}
+                </a>
+                <button
+                  onClick={() => setShowWpModal(false)}
+                  className="mt-4 w-full bg-gray-100 text-gray-700 py-2 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleWpPublish} className="space-y-4">
+                <p className="text-xs text-gray-500">
+                  Use a WordPress <strong>Application Password</strong> — create one in{' '}
+                  <em>Users → Profile → Application Passwords</em>.
+                </p>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">WordPress site URL</label>
+                  <input
+                    value={wpForm.siteUrl}
+                    onChange={e => setWpForm(p => ({ ...p, siteUrl: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    placeholder="https://myblog.com"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                  <input
+                    value={wpForm.username}
+                    onChange={e => setWpForm(p => ({ ...p, username: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    placeholder="admin"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Application Password</label>
+                  <input
+                    type="password"
+                    value={wpForm.appPassword}
+                    onChange={e => setWpForm(p => ({ ...p, appPassword: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    placeholder="xxxx xxxx xxxx xxxx xxxx xxxx"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Publish as</label>
+                  <div className="flex gap-2">
+                    {[{ v: 'draft', l: 'Draft' }, { v: 'publish', l: 'Published' }].map(opt => (
+                      <button
+                        key={opt.v}
+                        type="button"
+                        onClick={() => setWpForm(p => ({ ...p, wpStatus: opt.v }))}
+                        className={cn(
+                          'flex-1 py-2 rounded-lg text-sm font-medium border transition-colors',
+                          wpForm.wpStatus === opt.v
+                            ? 'bg-indigo-600 text-white border-indigo-600'
+                            : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300'
+                        )}
+                      >
+                        {opt.l}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {wpError && (
+                  <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg">{wpError}</p>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={wpPublishing}
+                  className="w-full flex items-center justify-center gap-2 bg-indigo-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                >
+                  {wpPublishing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  {wpPublishing ? 'Publishing...' : 'Publish to WordPress'}
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
