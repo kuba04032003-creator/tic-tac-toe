@@ -3,6 +3,19 @@ import { createClient } from '@/lib/supabase/server'
 
 const client = new Anthropic()
 
+const STOP_WORDS = new Set([
+  'the','and','for','are','but','not','you','all','any','can','had','her','was',
+  'one','our','out','day','get','has','him','his','how','its','now','old','see',
+  'two','way','who','did','man','new','use','she','may','sit','let','too','say',
+  'set','put','end','why','ask','men','too','also','than','then','them','these',
+  'they','this','that','with','have','from','been','were','will','into','some',
+  'what','when','your','more','about','would','there','their','which','other',
+  'after','could','those','first','well','just','each','back','much','only',
+  'most','over','such','even','does','made','like','very','time','long','make',
+  'here','said','both','very','come','know','need','want','used','good','high',
+  'page','site','web',
+])
+
 interface AuditResult {
   url: string
   fetchedAt: string
@@ -46,6 +59,7 @@ interface AuditResult {
     detected: boolean
     types: string[]
   }
+  keywords: { word: string; count: number }[]
   scores: {
     title: { score: number; status: 'good' | 'warn' | 'fail'; message: string }
     description: { score: number; status: 'good' | 'warn' | 'fail'; message: string }
@@ -54,7 +68,11 @@ interface AuditResult {
     schema: { score: number; status: 'good' | 'warn' | 'fail'; message: string }
     overall: number
   }
-  aiAnalysis: string
+  aiAnalysis: {
+    summary: string
+    wins: string[]
+    fixes: { issue: string; action: string; priority: 'high' | 'medium' | 'low' }[]
+  }
 }
 
 function getText(html: string, tag: string, attr?: string): string | null {
@@ -131,6 +149,23 @@ function scoreSchema(detected: boolean) {
   return { score: 0, status: 'fail' as const, message: 'No schema markup found — add JSON-LD' }
 }
 
+function extractKeywords(text: string, topN = 20): { word: string; count: number }[] {
+  const freq: Record<string, number> = {}
+  const words = text
+    .toLowerCase()
+    .replace(/[^a-z\s]/g, ' ')
+    .split(/\s+/)
+  for (const w of words) {
+    if (w.length >= 4 && !STOP_WORDS.has(w)) {
+      freq[w] = (freq[w] ?? 0) + 1
+    }
+  }
+  return Object.entries(freq)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, topN)
+    .map(([word, count]) => ({ word, count }))
+}
+
 export async function POST(req: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -196,6 +231,9 @@ export async function POST(req: Request) {
     .trim()
   const wordCount = stripped.split(' ').filter(w => w.length > 2).length
 
+  // Keyword density
+  const keywords = extractKeywords(stripped)
+
   // Scores
   const titleLen = title?.length ?? 0
   const descLen = description?.length ?? 0
@@ -212,8 +250,8 @@ export async function POST(req: Request) {
      scores.images.score + scores.schema.score) / 5
   )
 
-  // AI analysis — summarise content and give recommendations
-  const summary = `
+  // AI structured analysis
+  const pageSummary = `
 URL: ${url}
 Title: ${title ?? 'MISSING'} (${titleLen} chars)
 Meta description: ${description ?? 'MISSING'} (${descLen} chars)
@@ -225,17 +263,46 @@ Internal links: ${internalLinks}, External: ${externalLinks}
 Schema types: ${schemaTypes.join(', ') || 'none'}
 Canonical: ${canonical ?? 'not set'}
 Overall score: ${scores.overall}/100
+Top keywords: ${keywords.slice(0, 10).map(k => k.word).join(', ')}
 `.trim()
 
   const aiMsg = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
-    max_tokens: 800,
+    max_tokens: 900,
     messages: [{
       role: 'user',
-      content: `You are an expert SEO analyst. Based on this page data, write a brief SEO analysis (4-6 bullet points) covering the biggest wins and the top 3 priority fixes. Be specific and actionable.\n\n${summary}`,
+      content: `You are an expert SEO analyst. Analyse this page data and return a JSON object with this exact structure — no markdown, no extra text, just valid JSON:
+
+{
+  "summary": "one concise sentence describing the overall SEO health",
+  "wins": ["specific thing that is already working well", "..."],
+  "fixes": [
+    { "issue": "short name of the problem", "action": "specific fix to apply", "priority": "high" },
+    { "issue": "...", "action": "...", "priority": "medium" },
+    { "issue": "...", "action": "...", "priority": "low" }
+  ]
+}
+
+Rules:
+- wins: 2-4 items, each under 80 chars
+- fixes: 3-5 items sorted high→low priority, each action under 100 chars
+- priority must be exactly "high", "medium", or "low"
+
+Page data:
+${pageSummary}`,
     }],
   })
-  const aiAnalysis = aiMsg.content[0].type === 'text' ? aiMsg.content[0].text : ''
+
+  let aiAnalysis: AuditResult['aiAnalysis'] = { summary: '', wins: [], fixes: [] }
+  if (aiMsg.content[0].type === 'text') {
+    try {
+      const raw = aiMsg.content[0].text.replace(/```json\n?|\n?```/g, '').trim()
+      aiAnalysis = JSON.parse(raw)
+    } catch {
+      // fallback: treat whole text as summary
+      aiAnalysis = { summary: aiMsg.content[0].text, wins: [], fixes: [] }
+    }
+  }
 
   const result: AuditResult = {
     url,
@@ -266,6 +333,7 @@ Overall score: ${scores.overall}/100
     },
     links: { internal: internalLinks, external: externalLinks, total: internalLinks + externalLinks },
     schema: { detected: schemaDetected, types: [...new Set(schemaTypes)] },
+    keywords,
     scores,
     aiAnalysis,
   }
