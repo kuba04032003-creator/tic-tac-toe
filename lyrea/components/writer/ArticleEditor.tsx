@@ -154,6 +154,7 @@ export default function ArticleEditor({ article }: { article: Article }) {
   const [wordCount, setWordCount] = useState(0)
 
   const editor = useEditor({
+    immediatelyRender: false,
     extensions: [
       StarterKit,
       Placeholder.configure({ placeholder: 'Start writing or generate an article...' }),
