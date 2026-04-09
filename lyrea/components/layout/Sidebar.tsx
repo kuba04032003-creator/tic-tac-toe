@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { LayoutDashboard, PenSquare, FolderOpen, Settings, LogOut, Zap, Search, MessageSquare } from 'lucide-react'
+import { LayoutDashboard, PenSquare, FolderOpen, Settings, LogOut, Zap, Search, MessageSquare, BarChart2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 import type { User } from '@supabase/supabase-js'
@@ -10,6 +10,7 @@ import type { User } from '@supabase/supabase-js'
 const nav = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { label: 'Writer', href: '/writer', icon: PenSquare },
+  { label: 'SEO Audit', href: '/audit', icon: BarChart2 },
   { label: 'Sentence Search', href: '/sentences', icon: MessageSquare },
   { label: 'Keywords', href: '/keywords', icon: Search },
   { label: 'Projects', href: '/projects', icon: FolderOpen },
