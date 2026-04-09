@@ -10,6 +10,7 @@ import {
   ArrowLeft, Save, Check, Loader2,
   Bold, Italic, Heading2, Heading3,
   List, ListOrdered, Quote, Minus,
+  Copy, Globe, FileText,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -147,10 +148,34 @@ function EditorToolbar({ editor }: { editor: Editor }) {
   )
 }
 
+function htmlToMarkdown(html: string): string {
+  return html
+    .replace(/<h1>(.*?)<\/h1>/gi, '# $1\n\n')
+    .replace(/<h2>(.*?)<\/h2>/gi, '## $1\n\n')
+    .replace(/<h3>(.*?)<\/h3>/gi, '### $1\n\n')
+    .replace(/<strong>(.*?)<\/strong>/gi, '**$1**')
+    .replace(/<em>(.*?)<\/em>/gi, '*$1*')
+    .replace(/<li>(.*?)<\/li>/gi, '- $1\n')
+    .replace(/<ul>(.*?)<\/ul>/gis, '$1\n')
+    .replace(/<ol>(.*?)<\/ol>/gis, '$1\n')
+    .replace(/<blockquote>(.*?)<\/blockquote>/gis, '> $1\n\n')
+    .replace(/<hr\s*\/?>/gi, '---\n\n')
+    .replace(/<p>(.*?)<\/p>/gi, '$1\n\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
 export default function ArticleEditor({ article }: { article: Article }) {
   const [title, setTitle] = useState(article.title || '')
+  const [status, setStatus] = useState(article.status || 'draft')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [copied, setCopied] = useState(false)
   const [wordCount, setWordCount] = useState(0)
 
   const editor = useEditor({
@@ -183,12 +208,30 @@ export default function ArticleEditor({ article }: { article: Article }) {
     await fetch(`/api/articles/${article.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, content: editor.getHTML() }),
+      body: JSON.stringify({ title, content: editor.getHTML(), status }),
     })
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
-  }, [editor, title, article.id])
+  }, [editor, title, status, article.id])
+
+  async function toggleStatus() {
+    const next = status === 'published' ? 'draft' : 'published'
+    setStatus(next)
+    await fetch(`/api/articles/${article.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: next }),
+    })
+  }
+
+  function copyAsMarkdown() {
+    if (!editor) return
+    const md = `# ${title}\n\n${htmlToMarkdown(editor.getHTML())}`
+    navigator.clipboard.writeText(md)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
 
   useEffect(() => {
     const interval = setInterval(save, 30000)
@@ -223,12 +266,37 @@ export default function ArticleEditor({ article }: { article: Article }) {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           {article.keyword && (
             <span className="text-xs bg-indigo-50 text-indigo-600 px-2.5 py-1 rounded-full font-medium">
               {article.keyword}
             </span>
           )}
+
+          <button
+            onClick={copyAsMarkdown}
+            title="Copy as Markdown"
+            className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
+          >
+            {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+            {copied ? 'Copied!' : 'Copy MD'}
+          </button>
+
+          <button
+            onClick={toggleStatus}
+            className={cn(
+              'flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border transition-colors font-medium',
+              status === 'published'
+                ? 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100'
+                : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+            )}
+          >
+            {status === 'published'
+              ? <><Globe className="w-3.5 h-3.5" /> Published</>
+              : <><FileText className="w-3.5 h-3.5" /> Draft</>
+            }
+          </button>
+
           <button
             onClick={save}
             disabled={saving}

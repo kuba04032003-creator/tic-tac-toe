@@ -1,12 +1,18 @@
 import { createClient } from '@/lib/supabase/server'
 import NewArticleClient from '@/components/writer/NewArticleClient'
 
-export default async function NewArticlePage() {
+export default async function NewArticlePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ keyword?: string; project?: string }>
+}) {
   const supabase = await createClient()
   const { data: projects } = await supabase
     .from('projects')
     .select('id, name')
     .order('name')
 
-  return <NewArticleClient projects={projects ?? []} />
+  const { keyword, project } = await searchParams
+
+  return <NewArticleClient projects={projects ?? []} defaultKeyword={keyword} defaultProjectId={project} />
 }

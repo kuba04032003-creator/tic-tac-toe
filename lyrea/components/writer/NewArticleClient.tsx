@@ -14,14 +14,22 @@ const LENGTHS = [
   { value: 'long', label: 'Long (~2000 words)' },
 ]
 
-export default function NewArticleClient({ projects }: { projects: Project[] }) {
+export default function NewArticleClient({
+  projects,
+  defaultKeyword,
+  defaultProjectId,
+}: {
+  projects: Project[]
+  defaultKeyword?: string
+  defaultProjectId?: string
+}) {
   const router = useRouter()
   const [form, setForm] = useState({
     title: '',
-    keyword: '',
+    keyword: defaultKeyword ?? '',
     tone: 'Professional',
     length: 'medium',
-    projectId: '',
+    projectId: defaultProjectId ?? '',
   })
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState('')
