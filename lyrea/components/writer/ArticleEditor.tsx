@@ -5,12 +5,13 @@ import { useEditor, EditorContent, type Editor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import CharacterCount from '@tiptap/extension-character-count'
+import Image from '@tiptap/extension-image'
 import Link from 'next/link'
 import {
   ArrowLeft, Save, Check, Loader2,
   Bold, Italic, Heading2, Heading3,
   List, ListOrdered, Quote, Minus,
-  Copy, Globe, FileText, RefreshCw, Send, X,
+  Copy, Globe, FileText, RefreshCw, Send, X, ImageIcon, Sparkles,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -192,6 +193,13 @@ export default function ArticleEditor({ article }: { article: Article }) {
   const [regenerating, setRegenerating] = useState(false)
   const regenRef = useRef<HTMLDivElement>(null)
 
+  // Image generation state
+  const [showImagePanel, setShowImagePanel] = useState(false)
+  const [imageStyle, setImageStyle] = useState('professional, clean, photorealistic, editorial photography')
+  const [generatingImage, setGeneratingImage] = useState(false)
+  const [generatedImage, setGeneratedImage] = useState<{ url: string; prompt: string } | null>(null)
+  const [imageError, setImageError] = useState('')
+
   // WordPress publish state
   const [showWpModal, setShowWpModal] = useState(false)
   const [wpForm, setWpForm] = useState({ siteUrl: '', username: '', appPassword: '', wpStatus: 'draft' })
@@ -205,6 +213,7 @@ export default function ArticleEditor({ article }: { article: Article }) {
       StarterKit,
       Placeholder.configure({ placeholder: 'Start writing or generate an article...' }),
       CharacterCount,
+      Image.configure({ inline: false, allowBase64: false }),
     ],
     content: article.content ? markdownToHtml(article.content) : '',
     editorProps: {
@@ -331,6 +340,39 @@ export default function ArticleEditor({ article }: { article: Article }) {
     setWpPublishing(false)
   }
 
+  async function handleGenerateImage() {
+    setGeneratingImage(true)
+    setImageError('')
+    setGeneratedImage(null)
+
+    try {
+      const res = await fetch('/api/generate-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keyword: article.keyword, title, style: imageStyle }),
+      })
+
+      if (!res.ok) {
+        const err = await res.text()
+        throw new Error(err)
+      }
+
+      const data = await res.json()
+      setGeneratedImage(data)
+    } catch (err) {
+      setImageError(err instanceof Error ? err.message : 'Image generation failed')
+    }
+
+    setGeneratingImage(false)
+  }
+
+  function insertImageIntoArticle() {
+    if (!editor || !generatedImage) return
+    editor.chain().focus().setImage({ src: generatedImage.url, alt: title || article.keyword || '' }).run()
+    setShowImagePanel(false)
+    setGeneratedImage(null)
+  }
+
   useEffect(() => {
     const interval = setInterval(save, 30000)
     return () => clearInterval(interval)
@@ -455,6 +497,21 @@ export default function ArticleEditor({ article }: { article: Article }) {
             </div>
           )}
 
+          {/* Generate image */}
+          <button
+            onClick={() => { setShowImagePanel(v => !v); setGeneratedImage(null); setImageError('') }}
+            title="Generate AI image"
+            className={cn(
+              'flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border transition-colors',
+              showImagePanel
+                ? 'bg-indigo-50 border-indigo-300 text-indigo-700'
+                : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+            )}
+          >
+            <ImageIcon className="w-3.5 h-3.5" />
+            AI Image
+          </button>
+
           {/* WordPress publish */}
           <button
             onClick={() => { setShowWpModal(true); setWpResult(null); setWpError('') }}
@@ -502,6 +559,78 @@ export default function ArticleEditor({ article }: { article: Article }) {
 
       {/* Formatting toolbar */}
       {editor && <EditorToolbar editor={editor} />}
+
+      {/* AI Image panel */}
+      {showImagePanel && (
+        <div className="border-b border-gray-200 bg-gray-50 px-6 py-4">
+          <div className="max-w-3xl mx-auto">
+            <div className="flex items-center gap-2 mb-3">
+              <Sparkles className="w-4 h-4 text-indigo-500" />
+              <p className="text-sm font-semibold text-gray-800">Generate AI image with Flux Schnell</p>
+            </div>
+
+            <div className="flex gap-3 mb-3">
+              <input
+                value={imageStyle}
+                onChange={e => setImageStyle(e.target.value)}
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                placeholder="Style: photorealistic, illustration, flat design..."
+              />
+              <button
+                onClick={handleGenerateImage}
+                disabled={generatingImage}
+                className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors whitespace-nowrap"
+              >
+                {generatingImage
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Generating...</>
+                  : <><Sparkles className="w-4 h-4" /> Generate</>
+                }
+              </button>
+            </div>
+
+            {imageError && (
+              <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg mb-3">{imageError}</p>
+            )}
+
+            {generatedImage && (
+              <div className="flex gap-4 items-start">
+                <img
+                  src={generatedImage.url}
+                  alt="Generated"
+                  className="rounded-lg border border-gray-200 max-h-48 object-cover"
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-gray-500 mb-3 italic">&ldquo;{generatedImage.prompt}&rdquo;</p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={insertImageIntoArticle}
+                      className="flex items-center gap-1.5 bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-indigo-700 transition-colors"
+                    >
+                      <Check className="w-3.5 h-3.5" /> Insert into article
+                    </button>
+                    <button
+                      onClick={handleGenerateImage}
+                      disabled={generatingImage}
+                      className="flex items-center gap-1.5 border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-gray-100 transition-colors disabled:opacity-50"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" /> Regenerate
+                    </button>
+                    <a
+                      href={generatedImage.url}
+                      download="generated-image.webp"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-gray-100 transition-colors"
+                    >
+                      Download
+                    </a>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Editor */}
       <div className="flex-1 overflow-y-auto bg-white">
