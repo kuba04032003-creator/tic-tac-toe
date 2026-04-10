@@ -209,7 +209,21 @@ const LENGTHS = [
   { value: 'long', label: 'Long' },
 ]
 
-export default function ArticleEditor({ article }: { article: Article }) {
+interface WpCreds {
+  url: string
+  username: string
+  appPassword: string
+}
+
+export default function ArticleEditor({
+  article,
+  wpCreds,
+  projectId,
+}: {
+  article: Article
+  wpCreds?: WpCreds | null
+  projectId?: string | null
+}) {
   const router = useRouter()
   const [title, setTitle] = useState(article.title || '')
   const [status, setStatus] = useState(article.status || 'draft')
@@ -243,7 +257,12 @@ export default function ArticleEditor({ article }: { article: Article }) {
 
   // WordPress publish state
   const [showWpModal, setShowWpModal] = useState(false)
-  const [wpForm, setWpForm] = useState({ siteUrl: '', username: '', appPassword: '', wpStatus: 'draft' })
+  const [wpForm, setWpForm] = useState({
+    siteUrl: wpCreds?.url ?? '',
+    username: wpCreds?.username ?? '',
+    appPassword: wpCreds?.appPassword ?? '',
+    wpStatus: 'draft',
+  })
   const [wpPublishing, setWpPublishing] = useState(false)
   const [wpResult, setWpResult] = useState<{ link: string } | null>(null)
   const [wpError, setWpError] = useState('')
