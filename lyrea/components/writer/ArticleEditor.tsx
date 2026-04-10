@@ -11,9 +11,10 @@ import {
   ArrowLeft, Save, Check, Loader2,
   Bold, Italic, Heading2, Heading3,
   List, ListOrdered, Quote, Minus,
-  Copy, Globe, FileText, RefreshCw, Send, X, ImageIcon, Sparkles,
+  Copy, Globe, FileText, RefreshCw, Send, X, ImageIcon, Sparkles, BarChart2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import SeoScorePanel from './SeoScorePanel'
 
 interface Article {
   id: string
@@ -21,37 +22,66 @@ interface Article {
   content: string
   keyword?: string
   status: string
+  project_id?: string
+}
+
+function inlineMarkdown(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/`(.+?)`/g, '<code>$1</code>')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
 }
 
 function markdownToHtml(md: string): string {
+  // If already HTML, return as-is
+  if (md.trimStart().startsWith('<')) return md
+
   const lines = md.split('\n')
   const result: string[] = []
-  let inList = false
+  let inUl = false
+  let inOl = false
 
   for (const line of lines) {
     if (line.startsWith('### ')) {
-      if (inList) { result.push('</ul>'); inList = false }
-      result.push(`<h3>${line.slice(4)}</h3>`)
+      if (inUl) { result.push('</ul>'); inUl = false }
+      if (inOl) { result.push('</ol>'); inOl = false }
+      result.push(`<h3>${inlineMarkdown(line.slice(4))}</h3>`)
     } else if (line.startsWith('## ')) {
-      if (inList) { result.push('</ul>'); inList = false }
-      result.push(`<h2>${line.slice(3)}</h2>`)
+      if (inUl) { result.push('</ul>'); inUl = false }
+      if (inOl) { result.push('</ol>'); inOl = false }
+      result.push(`<h2>${inlineMarkdown(line.slice(3))}</h2>`)
     } else if (line.startsWith('# ')) {
-      if (inList) { result.push('</ul>'); inList = false }
-      result.push(`<h1>${line.slice(2)}</h1>`)
-    } else if (line.startsWith('- ')) {
-      if (!inList) { result.push('<ul>'); inList = true }
-      result.push(`<li>${line.slice(2).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\*(.+?)\*/g, '<em>$1</em>')}</li>`)
+      if (inUl) { result.push('</ul>'); inUl = false }
+      if (inOl) { result.push('</ol>'); inOl = false }
+      result.push(`<h1>${inlineMarkdown(line.slice(2))}</h1>`)
+    } else if (line.startsWith('- ') || line.startsWith('* ')) {
+      if (inOl) { result.push('</ol>'); inOl = false }
+      if (!inUl) { result.push('<ul>'); inUl = true }
+      result.push(`<li>${inlineMarkdown(line.slice(2))}</li>`)
+    } else if (/^\d+\. /.test(line)) {
+      if (inUl) { result.push('</ul>'); inUl = false }
+      if (!inOl) { result.push('<ol>'); inOl = true }
+      result.push(`<li>${inlineMarkdown(line.replace(/^\d+\. /, ''))}</li>`)
+    } else if (line.startsWith('> ')) {
+      if (inUl) { result.push('</ul>'); inUl = false }
+      if (inOl) { result.push('</ol>'); inOl = false }
+      result.push(`<blockquote><p>${inlineMarkdown(line.slice(2))}</p></blockquote>`)
+    } else if (/^---+$/.test(line.trim())) {
+      if (inUl) { result.push('</ul>'); inUl = false }
+      if (inOl) { result.push('</ol>'); inOl = false }
+      result.push('<hr />')
     } else if (line.trim() === '') {
-      if (inList) { result.push('</ul>'); inList = false }
+      if (inUl) { result.push('</ul>'); inUl = false }
+      if (inOl) { result.push('</ol>'); inOl = false }
     } else {
-      if (inList) { result.push('</ul>'); inList = false }
-      const formatted = line
-        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\*(.+?)\*/g, '<em>$1</em>')
-      result.push(`<p>${formatted}</p>`)
+      if (inUl) { result.push('</ul>'); inUl = false }
+      if (inOl) { result.push('</ol>'); inOl = false }
+      result.push(`<p>${inlineMarkdown(line)}</p>`)
     }
   }
-  if (inList) result.push('</ul>')
+  if (inUl) result.push('</ul>')
+  if (inOl) result.push('</ol>')
   return result.join('')
 }
 
@@ -193,6 +223,10 @@ export default function ArticleEditor({ article }: { article: Article }) {
   const [regenerating, setRegenerating] = useState(false)
   const regenRef = useRef<HTMLDivElement>(null)
 
+  // SEO panel state
+  const [showSeoPanel, setShowSeoPanel] = useState(false)
+  const [editorContent, setEditorContent] = useState(article.content || '')
+
   // Image generation state
   const [showImagePanel, setShowImagePanel] = useState(false)
   const [imageStyle, setImageStyle] = useState('professional, clean, photorealistic, editorial photography')
@@ -223,6 +257,7 @@ export default function ArticleEditor({ article }: { article: Article }) {
     },
     onUpdate: ({ editor }) => {
       setWordCount(editor.storage.characterCount.words())
+      setEditorContent(editor.getHTML())
     },
   })
 
@@ -295,10 +330,11 @@ export default function ArticleEditor({ article }: { article: Article }) {
         editor.commands.setContent(markdownToHtml(content))
       }
 
+      // Save as HTML so subsequent loads don't need markdown conversion
       await fetch(`/api/articles/${article.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content: editor.getHTML() }),
       })
     } catch (_) { /* noop */ }
 
@@ -497,6 +533,21 @@ export default function ArticleEditor({ article }: { article: Article }) {
             </div>
           )}
 
+          {/* SEO Score panel */}
+          <button
+            onClick={() => setShowSeoPanel(v => !v)}
+            title="SEO & AI Citation Score"
+            className={cn(
+              'flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border transition-colors',
+              showSeoPanel
+                ? 'bg-indigo-50 border-indigo-300 text-indigo-700'
+                : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+            )}
+          >
+            <BarChart2 className="w-3.5 h-3.5" />
+            SEO Score
+          </button>
+
           {/* Generate image */}
           <button
             onClick={() => { setShowImagePanel(v => !v); setGeneratedImage(null); setImageError('') }}
@@ -632,19 +683,29 @@ export default function ArticleEditor({ article }: { article: Article }) {
         </div>
       )}
 
-      {/* Editor */}
-      <div className="flex-1 overflow-y-auto bg-white">
-        <div className="max-w-3xl mx-auto">
-          <div className="px-8 pt-10 pb-4">
-            <input
-              value={title}
-              onChange={e => setTitle(e.target.value)}
-              className="w-full text-3xl font-bold text-gray-900 focus:outline-none placeholder-gray-300 border-none bg-transparent"
-              placeholder="Article title..."
-            />
+      {/* Editor + SEO panel */}
+      <div className="flex flex-1 overflow-hidden">
+        <div className="flex-1 overflow-y-auto bg-white">
+          <div className="max-w-3xl mx-auto">
+            <div className="px-8 pt-10 pb-4">
+              <input
+                value={title}
+                onChange={e => setTitle(e.target.value)}
+                className="w-full text-3xl font-bold text-gray-900 focus:outline-none placeholder-gray-300 border-none bg-transparent"
+                placeholder="Article title..."
+              />
+            </div>
+            <EditorContent editor={editor} />
           </div>
-          <EditorContent editor={editor} />
         </div>
+        {showSeoPanel && (
+          <SeoScorePanel
+            content={editorContent}
+            title={title}
+            keyword={article.keyword || ''}
+            article={article}
+          />
+        )}
       </div>
 
       {/* WordPress Modal */}

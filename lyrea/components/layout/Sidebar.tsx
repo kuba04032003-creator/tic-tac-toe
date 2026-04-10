@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { LayoutDashboard, PenSquare, FolderOpen, Settings, LogOut, Zap, Search, MessageSquare, BarChart2, TrendingUp } from 'lucide-react'
+import { LayoutDashboard, PenSquare, FolderOpen, Settings, LogOut, Zap, Search, MessageSquare, BarChart2, TrendingUp, FileText, Map } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 import type { User } from '@supabase/supabase-js'
@@ -10,6 +10,8 @@ import type { User } from '@supabase/supabase-js'
 const nav = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { label: 'Writer', href: '/writer', icon: PenSquare },
+  { label: 'Content Brief', href: '/brief', icon: FileText },
+  { label: 'Topical Map', href: '/topical-map', icon: Map },
   { label: 'SEO Audit', href: '/audit', icon: BarChart2 },
   { label: 'Sentence Search', href: '/sentences', icon: MessageSquare },
   { label: 'Keywords', href: '/keywords', icon: Search },
@@ -42,7 +44,7 @@ export default function Sidebar({ user }: { user: User }) {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 px-3 py-4 space-y-0.5">
+      <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
         {nav.map(item => (
           <Link
             key={item.href}
@@ -54,7 +56,7 @@ export default function Sidebar({ user }: { user: User }) {
                 : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
             )}
           >
-            <item.icon className="w-4 h-4" />
+            <item.icon className="w-4 h-4 flex-shrink-0" />
             {item.label}
           </Link>
         ))}
