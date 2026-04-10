@@ -263,6 +263,7 @@ export default function ArticleEditor({
     appPassword: wpCreds?.appPassword ?? '',
     wpStatus: 'draft',
   })
+  const [saveToProject, setSaveToProject] = useState(true)
   const [wpPublishing, setWpPublishing] = useState(false)
   const [wpResult, setWpResult] = useState<{ link: string } | null>(null)
   const [wpError, setWpError] = useState('')
@@ -410,6 +411,21 @@ export default function ArticleEditor({
 
       const data = await res.json()
       setWpResult(data)
+
+      // Persist credentials to project if checkbox is checked
+      if (saveToProject && projectId) {
+        try {
+          await fetch(`/api/projects/${projectId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              wp_url: wpForm.siteUrl,
+              wp_username: wpForm.username,
+              wp_app_password: wpForm.appPassword,
+            }),
+          })
+        } catch (_) { /* noop — publish succeeded, don't block */ }
+      }
     } catch (err) {
       setWpError(err instanceof Error ? err.message : 'Publish failed')
     }
@@ -847,6 +863,18 @@ export default function ArticleEditor({
                     required
                   />
                 </div>
+
+                {projectId && (
+                  <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={saveToProject}
+                      onChange={e => setSaveToProject(e.target.checked)}
+                      className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    Save credentials to project
+                  </label>
+                )}
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Publish as</label>
