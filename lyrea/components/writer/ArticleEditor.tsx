@@ -223,9 +223,10 @@ export default function ArticleEditor({ article }: { article: Article }) {
   const [regenerating, setRegenerating] = useState(false)
   const regenRef = useRef<HTMLDivElement>(null)
 
-  // SEO panel state
+  // SEO panel state — debounced to avoid re-scoring on every keystroke
   const [showSeoPanel, setShowSeoPanel] = useState(false)
   const [editorContent, setEditorContent] = useState(article.content || '')
+  const seoDebounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   // Image generation state
   const [showImagePanel, setShowImagePanel] = useState(false)
@@ -257,7 +258,11 @@ export default function ArticleEditor({ article }: { article: Article }) {
     },
     onUpdate: ({ editor }) => {
       setWordCount(editor.storage.characterCount.words())
-      setEditorContent(editor.getHTML())
+      // Debounce SEO panel updates — heavy regex scoring shouldn't run on every keystroke
+      clearTimeout(seoDebounceRef.current)
+      seoDebounceRef.current = setTimeout(() => {
+        setEditorContent(editor.getHTML())
+      }, 500)
     },
   })
 
@@ -388,12 +393,12 @@ export default function ArticleEditor({ article }: { article: Article }) {
         body: JSON.stringify({ keyword: article.keyword, title, style: imageStyle }),
       })
 
-      if (!res.ok) {
-        const err = await res.text()
-        throw new Error(err)
+      const data = await res.json()
+
+      if (!res.ok || data.error) {
+        throw new Error(data.error ?? 'Image generation failed')
       }
 
-      const data = await res.json()
       setGeneratedImage(data)
     } catch (err) {
       setImageError(err instanceof Error ? err.message : 'Image generation failed')
