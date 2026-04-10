@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, PenSquare, Plus, Globe, Clock, Mic, FileText, Map, BarChart2, CheckCircle2, FileEdit } from 'lucide-react'
 import BrandVoiceForm from '@/components/settings/BrandVoiceForm'
+import ProjectWpForm from '@/components/projects/ProjectWpForm'
 
 export default async function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -186,6 +187,27 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         </p>
         <div className="bg-white rounded-xl border border-gray-200 p-6">
           <BrandVoiceForm existing={brandVoice ?? null} userId={user!.id} projectId={id} />
+        </div>
+      </div>
+
+      {/* WordPress Credentials */}
+      <div className="max-w-2xl mt-10">
+        <div className="flex items-center gap-2 mb-1">
+          <Globe className="w-4 h-4 text-indigo-500" />
+          <h2 className="text-lg font-semibold text-gray-900">WordPress</h2>
+        </div>
+        <p className="text-sm text-gray-500 mb-5">
+          Credentials saved here will auto-fill when publishing articles from this project.
+        </p>
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <ProjectWpForm
+            projectId={id}
+            initial={{
+              wp_url: project.wp_url,
+              wp_username: project.wp_username,
+              wp_app_password: project.wp_app_password,
+            }}
+          />
         </div>
       </div>
     </div>
