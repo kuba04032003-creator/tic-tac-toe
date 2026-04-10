@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Active project: LYREA Content Engine
 
-AI-powered SEO content platform. All code lives in `lyrea/`.
+AI-powered SEO content platform. Core USP: transforms basic keywords into long-tail, conversational, AI-search-optimised queries (ChatGPT/Perplexity/Google AI style). All code lives in `lyrea/`.
 
 ## Running the project
 
@@ -19,13 +19,14 @@ Open http://localhost:3000
 - **Framework**: Next.js 16.2 (App Router, Turbopack) — uses `proxy.ts` not `middleware.ts`
 - **Auth + DB**: Supabase (`@supabase/ssr`) — project: `qspymmbbrmyqzsuumwnn`
 - **AI**: Anthropic Claude API (`claude-sonnet-4-6`), streaming via `/api/generate`
-- **Editor**: Tiptap (StarterKit + Placeholder + CharacterCount)
-- **Styling**: Tailwind CSS v4
+- **Editor**: Tiptap v3 (StarterKit + Placeholder + CharacterCount + Image)
+- **Styling**: Tailwind CSS v4 + `@tailwindcss/typography` (loaded via `@plugin` in globals.css)
+- **Images**: Replicate (`black-forest-labs/flux-pro`) — requires `REPLICATE_API_KEY` in `.env.local`
 
 ## Database tables (Supabase)
 
-- `projects` — websites (name, url, language, industry)
-- `articles` — generated content (title, content, keyword, status)
+- `projects` — websites (name, url, language, industry, description)
+- `articles` — generated content (title, content, keyword, status, project_id)
 - `brand_voices` — tone config per user/project
 
 All tables have RLS enabled — users only access their own rows.
@@ -35,30 +36,59 @@ All tables have RLS enabled — users only access their own rows.
 - `lyrea/proxy.ts` — auth guard (redirects unauthenticated users to /login)
 - `lyrea/app/api/generate/route.ts` — streaming Claude API endpoint
 - `lyrea/app/api/articles/route.ts` — create article
-- `lyrea/app/api/articles/[id]/route.ts` — update article
-- `lyrea/components/writer/ArticleEditor.tsx` — Tiptap editor with autosave
+- `lyrea/app/api/articles/[id]/route.ts` — update/delete article
+- `lyrea/app/api/brief/route.ts` — AI content brief generator
+- `lyrea/app/api/topical-map/route.ts` — pillar + cluster content map
+- `lyrea/app/api/internal-links/route.ts` — AI internal link suggestions
+- `lyrea/app/api/keywords/route.ts` — long-tail keyword cluster generator
+- `lyrea/app/api/generate-image/route.ts` — Flux Pro image generation via Replicate
+- `lyrea/app/api/wordpress/route.ts` — WordPress REST API publisher
+- `lyrea/components/writer/ArticleEditor.tsx` — Tiptap editor with autosave, SEO panel, image gen, WP publish
+- `lyrea/components/writer/SeoScorePanel.tsx` — real-time SEO + AI Citation scores + internal links
 - `lyrea/components/writer/NewArticleClient.tsx` — article generation form
+- `lyrea/components/brief/BriefClient.tsx` — content brief UI
+- `lyrea/components/topical-map/TopicalMapClient.tsx` — topical map UI
+- `lyrea/components/keywords/KeywordsClient.tsx` — keyword research UI
 - `lyrea/lib/supabase/client.ts` — browser Supabase client
 - `lyrea/lib/supabase/server.ts` — server Supabase client
 
-## MVP status (built)
+## Features (fully built)
 
 - [x] Auth (login / signup)
-- [x] Dashboard
-- [x] Projects (create / list)
-- [x] AI article writer (streaming)
-- [x] Rich editor (Tiptap, autosave, Ctrl+S)
-- [x] Brand voice settings
+- [x] Dashboard (stats, recent articles, quick actions)
+- [x] Projects (create / list / detail with stats + quick actions)
+- [x] Project brand voice (per-project override)
+- [x] AI article writer (streaming, tone, length)
+- [x] Rich editor (Tiptap, autosave every 30s, Ctrl+S, formatting toolbar)
+- [x] Regenerate article (tone + length picker, streams into editor)
+- [x] SEO Score Panel (8 checks, real-time, 500ms debounce)
+- [x] AI Citation Score (7 checks for ChatGPT/Perplexity/Google AI)
+- [x] Internal link suggestions (lazy-loaded per project)
+- [x] Content Brief generator (titles, outline, semantic keywords, AI citation tips)
+- [x] Topical Map generator (pillar + 12 clusters, intent/priority/AI badges)
+- [x] Keyword Research (5 intent clusters, long-tail conversational queries, volume/difficulty/relevance)
+- [x] AI image generation (Flux Pro via Replicate, insert into article)
+- [x] WordPress publishing (REST API with Application Password)
+- [x] Copy as Markdown
+- [x] Article status toggle (draft / published)
+- [x] Brand voice settings (global)
+- [x] Prose styling in editor (@tailwindcss/typography)
 - [x] Route protection
+
+## Known issues / env requirements
+
+- `REPLICATE_API_KEY` must be set in `lyrea/.env.local` for image generation
+- Content is stored as HTML in DB after first save; `markdownToHtml()` detects HTML vs markdown on load
 
 ## Next to build
 
-- [ ] Project detail page (`/projects/[id]`)
-- [ ] Article status (publish / unpublish)
-- [ ] Prose styling for editor (typography plugin)
-- [ ] Editor toolbar (bold, italic, headings)
-- [ ] Keyword research (basic)
-- [ ] Topical map generator
+- [x] Writer list — search by title/keyword, filter by status and project
+- [x] Projects list — show article count per project
+- [x] Delete article — from list (hover trash icon) and from editor (top bar)
+- [ ] Article generation streaming preview (show tokens as they arrive before redirect)
+- [ ] Rank tracking UI (API exists at `/api/rank`, page is stub)
+- [ ] SEO Audit UI (API exists at `/api/audit`, page is stub)
+- [ ] Sentence flywheel UI (API exists at `/api/sentences`, page is stub)
 
 ## Git workflow
 

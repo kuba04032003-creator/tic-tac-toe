@@ -7,11 +7,12 @@ import Placeholder from '@tiptap/extension-placeholder'
 import CharacterCount from '@tiptap/extension-character-count'
 import Image from '@tiptap/extension-image'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Save, Check, Loader2,
   Bold, Italic, Heading2, Heading3,
   List, ListOrdered, Quote, Minus,
-  Copy, Globe, FileText, RefreshCw, Send, X, ImageIcon, Sparkles, BarChart2,
+  Copy, Globe, FileText, RefreshCw, Send, X, ImageIcon, Sparkles, BarChart2, Trash2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import SeoScorePanel from './SeoScorePanel'
@@ -209,6 +210,7 @@ const LENGTHS = [
 ]
 
 export default function ArticleEditor({ article }: { article: Article }) {
+  const router = useRouter()
   const [title, setTitle] = useState(article.title || '')
   const [status, setStatus] = useState(article.status || 'draft')
   const [saving, setSaving] = useState(false)
@@ -234,6 +236,10 @@ export default function ArticleEditor({ article }: { article: Article }) {
   const [generatingImage, setGeneratingImage] = useState(false)
   const [generatedImage, setGeneratedImage] = useState<{ url: string; prompt: string } | null>(null)
   const [imageError, setImageError] = useState('')
+
+  // Delete state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   // WordPress publish state
   const [showWpModal, setShowWpModal] = useState(false)
@@ -284,6 +290,17 @@ export default function ArticleEditor({ article }: { article: Article }) {
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }, [editor, title, status, article.id])
+
+  async function handleDelete() {
+    setDeleting(true)
+    const res = await fetch(`/api/articles/${article.id}`, { method: 'DELETE' })
+    if (res.ok || res.status === 204) {
+      router.push('/writer')
+    } else {
+      setDeleting(false)
+      setShowDeleteConfirm(false)
+    }
+  }
 
   async function toggleStatus() {
     const next = status === 'published' ? 'draft' : 'published'
@@ -610,6 +627,34 @@ export default function ArticleEditor({ article }: { article: Article }) {
             {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : saved ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Save className="w-3.5 h-3.5" />}
             {saved ? 'Saved' : 'Save'}
           </button>
+
+          {/* Delete */}
+          {showDeleteConfirm ? (
+            <div className="flex items-center gap-1.5 bg-red-50 border border-red-200 rounded-lg px-3 py-1.5">
+              <span className="text-xs text-red-700 font-medium">Delete article?</span>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="text-xs font-semibold text-white bg-red-600 hover:bg-red-700 px-2 py-0.5 rounded disabled:opacity-50 transition-colors"
+              >
+                {deleting ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Yes'}
+              </button>
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="text-xs font-medium text-gray-500 hover:text-gray-700"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              title="Delete article"
+              className="p-1.5 rounded-lg border border-gray-200 text-gray-400 hover:text-red-500 hover:border-red-200 hover:bg-red-50 transition-colors"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
 
