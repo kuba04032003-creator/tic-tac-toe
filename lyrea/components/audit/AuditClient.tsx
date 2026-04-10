@@ -1,12 +1,16 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   Search, Loader2, CheckCircle, AlertTriangle, XCircle, Sparkles,
   ExternalLink, FileText, Image, Link2, Code2, AlignLeft,
   Globe, Share2, Heading1, BarChart3, Clock, ChevronRight, Zap,
+  RefreshCw, TrendingUp, TrendingDown, Minus, FolderOpen,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { createClient } from '@/lib/supabase/client'
+
+interface Project { id: string; name: string }
 
 interface ScoreItem {
   score: number
@@ -50,30 +54,24 @@ interface AuditResult {
 }
 
 interface HistoryEntry {
+  id: string
   url: string
-  fetchedAt: string
-  overall: number
-  title: string | null
+  created_at: string
+  score: number
   result: AuditResult
+  project_id: string | null
+  prevScore?: number | null
 }
 
-const HISTORY_KEY = 'lyrea_audit_history'
-
-function loadHistory(): HistoryEntry[] {
+/* ─── Local cache fallback (offline / table not set up) ──────────────────── */
+const LOCAL_KEY = 'lyrea_audit_history_v2'
+function localLoad(): HistoryEntry[] {
   if (typeof window === 'undefined') return []
-  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]') } catch { return [] }
+  try { return JSON.parse(localStorage.getItem(LOCAL_KEY) ?? '[]') } catch { return [] }
 }
-
-function saveToHistory(result: AuditResult) {
-  const entry: HistoryEntry = {
-    url: result.url,
-    fetchedAt: result.fetchedAt,
-    overall: result.scores.overall,
-    title: result.meta.title,
-    result,
-  }
-  const prev = loadHistory().filter(h => h.url !== result.url)
-  localStorage.setItem(HISTORY_KEY, JSON.stringify([entry, ...prev].slice(0, 10)))
+function localSave(entry: HistoryEntry) {
+  const prev = localLoad().filter(h => h.id !== entry.id)
+  localStorage.setItem(LOCAL_KEY, JSON.stringify([entry, ...prev].slice(0, 20)))
 }
 
 /* ─── Score ring ──────────────────────────────────────────────────────────── */
@@ -112,14 +110,12 @@ function ScoreBar({ score, status }: { score: number; status: 'good' | 'warn' | 
   )
 }
 
-/* ─── Status icon ─────────────────────────────────────────────────────────── */
 function StatusIcon({ status }: { status: 'good' | 'warn' | 'fail' }) {
   if (status === 'good') return <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
   if (status === 'warn') return <AlertTriangle className="w-4 h-4 text-yellow-500 flex-shrink-0" />
   return <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
 }
 
-/* ─── Mini ring ───────────────────────────────────────────────────────────── */
 function MiniRing({ ratio, color }: { ratio: number; color: string }) {
   const r = 16, circ = 2 * Math.PI * r
   return (
@@ -132,7 +128,6 @@ function MiniRing({ ratio, color }: { ratio: number; color: string }) {
   )
 }
 
-/* ─── Stat card ───────────────────────────────────────────────────────────── */
 function StatCard({ icon: Icon, label, value, sub, ring }: {
   icon: React.ElementType; label: string; value: string; sub?: string
   ring?: { ratio: number; color: string }
@@ -155,7 +150,6 @@ function StatCard({ icon: Icon, label, value, sub, ring }: {
   )
 }
 
-/* ─── Section card ────────────────────────────────────────────────────────── */
 function Card({ title, icon: Icon, children, className }: {
   title: string; icon?: React.ElementType; children: React.ReactNode; className?: string
 }) {
@@ -169,7 +163,6 @@ function Card({ title, icon: Icon, children, className }: {
   )
 }
 
-/* ─── Meta row ────────────────────────────────────────────────────────────── */
 function MetaRow({ label, value, status }: { label: string; value: string | null; status?: 'good' | 'warn' | 'fail' }) {
   return (
     <div className="flex items-start gap-2 py-2 border-b border-gray-50 last:border-0">
@@ -184,7 +177,6 @@ function MetaRow({ label, value, status }: { label: string; value: string | null
   )
 }
 
-/* ─── Tag ─────────────────────────────────────────────────────────────────── */
 function Tag({ children, variant = 'gray' }: { children: React.ReactNode; variant?: 'gray' | 'green' | 'red' | 'indigo' }) {
   return (
     <span className={cn('inline-block text-xs px-2 py-0.5 rounded-full font-medium mr-1 mb-1', {
@@ -198,7 +190,6 @@ function Tag({ children, variant = 'gray' }: { children: React.ReactNode; varian
   )
 }
 
-/* ─── Priority badge ──────────────────────────────────────────────────────── */
 function PriorityBadge({ priority }: { priority: 'high' | 'medium' | 'low' }) {
   return (
     <span className={cn('inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full', {
@@ -212,12 +203,32 @@ function PriorityBadge({ priority }: { priority: 'high' | 'medium' | 'low' }) {
   )
 }
 
+/* ─── Score diff badge ───────────────────────────────────────────────────── */
+function ScoreDiff({ current, prev }: { current: number; prev: number | null | undefined }) {
+  if (prev == null) return null
+  const d = current - prev
+  if (d === 0) return (
+    <span className="flex items-center gap-0.5 text-xs text-gray-400 ml-1">
+      <Minus className="w-3 h-3" />0
+    </span>
+  )
+  if (d > 0) return (
+    <span className="flex items-center gap-0.5 text-xs font-semibold text-emerald-600 ml-1">
+      <TrendingUp className="w-3 h-3" />+{d}
+    </span>
+  )
+  return (
+    <span className="flex items-center gap-0.5 text-xs font-semibold text-red-500 ml-1">
+      <TrendingDown className="w-3 h-3" />{d}
+    </span>
+  )
+}
+
 const checkLabels: Record<string, string> = {
   title: 'Page Title', description: 'Meta Description',
   h1: 'H1 Heading', images: 'Image Alt Text', schema: 'Schema Markup',
 }
 
-/* ─── AI recommendations panel ───────────────────────────────────────────── */
 function AIPanel({ ai }: { ai: AuditResult['aiAnalysis'] }) {
   return (
     <div className="bg-gradient-to-br from-indigo-50 to-violet-50 border border-indigo-100 rounded-xl p-5">
@@ -233,7 +244,6 @@ function AIPanel({ ai }: { ai: AuditResult['aiAnalysis'] }) {
       )}
 
       <div className="grid grid-cols-2 gap-4">
-        {/* Wins */}
         {ai.wins.length > 0 && (
           <div>
             <p className="text-xs font-semibold text-green-700 uppercase tracking-wide mb-2">What's working</p>
@@ -248,7 +258,6 @@ function AIPanel({ ai }: { ai: AuditResult['aiAnalysis'] }) {
           </div>
         )}
 
-        {/* Fixes */}
         {ai.fixes.length > 0 && (
           <div>
             <p className="text-xs font-semibold text-red-700 uppercase tracking-wide mb-2">Priority fixes</p>
@@ -266,7 +275,6 @@ function AIPanel({ ai }: { ai: AuditResult['aiAnalysis'] }) {
           </div>
         )}
 
-        {/* Fallback if no structured data */}
         {ai.wins.length === 0 && ai.fixes.length === 0 && ai.summary && (
           <div className="col-span-2 text-sm text-indigo-900 whitespace-pre-wrap leading-relaxed">{ai.summary}</div>
         )}
@@ -275,7 +283,6 @@ function AIPanel({ ai }: { ai: AuditResult['aiAnalysis'] }) {
   )
 }
 
-/* ─── Keyword density panel ───────────────────────────────────────────────── */
 function KeywordPanel({ keywords }: { keywords: { word: string; count: number }[] }) {
   if (!keywords.length) return null
   const max = keywords[0].count
@@ -286,10 +293,8 @@ function KeywordPanel({ keywords }: { keywords: { word: string; count: number }[
           <div key={word} className="flex items-center gap-3">
             <span className="text-xs font-mono text-gray-700 w-28 flex-shrink-0 truncate">{word}</span>
             <div className="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
-              <div
-                className="h-2 rounded-full bg-indigo-400 transition-all duration-500"
-                style={{ width: `${(count / max) * 100}%` }}
-              />
+              <div className="h-2 rounded-full bg-indigo-400 transition-all duration-500"
+                style={{ width: `${(count / max) * 100}%` }} />
             </div>
             <span className="text-xs text-gray-400 w-6 text-right flex-shrink-0">{count}</span>
           </div>
@@ -299,77 +304,200 @@ function KeywordPanel({ keywords }: { keywords: { word: string; count: number }[
   )
 }
 
-/* ─── Audit history sidebar ───────────────────────────────────────────────── */
+/* ─── History sidebar ────────────────────────────────────────────────────── */
 function HistorySidebar({
-  history, onSelect, activeUrl,
+  history,
+  onSelect,
+  onRerun,
+  activeId,
+  projectFilter,
+  onProjectFilter,
+  projects,
 }: {
   history: HistoryEntry[]
-  onSelect: (r: AuditResult) => void
-  activeUrl: string
+  onSelect: (e: HistoryEntry) => void
+  onRerun: (url: string) => void
+  activeId: string
+  projectFilter: string
+  onProjectFilter: (id: string) => void
+  projects: Project[]
 }) {
-  if (!history.length) return null
+  const filtered = projectFilter
+    ? history.filter(h => h.project_id === projectFilter)
+    : history
+
   return (
-    <div className="w-64 flex-shrink-0">
-      <div className="bg-white rounded-xl border border-gray-200 p-4">
-        <h3 className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">
-          <Clock className="w-3.5 h-3.5" /> Recent audits
-        </h3>
-        <ul className="space-y-1">
-          {history.map(h => {
-            const isActive = h.url === activeUrl
-            const color = h.overall >= 80 ? 'text-green-600' : h.overall >= 50 ? 'text-yellow-600' : 'text-red-600'
-            return (
-              <li key={h.url + h.fetchedAt}>
-                <button
-                  onClick={() => onSelect(h.result)}
-                  className={cn(
-                    'w-full text-left flex items-center gap-2 px-2 py-2 rounded-lg text-xs transition-colors',
+    <div className="w-64 flex-shrink-0 space-y-3">
+      {/* Project filter */}
+      {projects.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-3">
+          <div className="flex items-center gap-1.5 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-widest">
+            <FolderOpen className="w-3.5 h-3.5" />
+            Filter by project
+          </div>
+          <select
+            value={projectFilter}
+            onChange={e => onProjectFilter(e.target.value)}
+            className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+            <option value="">All audits</option>
+            {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </div>
+      )}
+
+      {/* History list */}
+      {filtered.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <h3 className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">
+            <Clock className="w-3.5 h-3.5" /> Recent audits
+          </h3>
+          <ul className="space-y-1">
+            {filtered.map(h => {
+              const isActive = h.id === activeId
+              const scoreColor = h.score >= 80 ? 'text-green-600' : h.score >= 50 ? 'text-yellow-600' : 'text-red-600'
+              return (
+                <li key={h.id}>
+                  <div className={cn(
+                    'w-full text-left flex items-start gap-2 px-2 py-2 rounded-lg text-xs transition-colors group',
                     isActive ? 'bg-indigo-50 border border-indigo-100' : 'hover:bg-gray-50'
-                  )}
-                >
-                  <span className={cn('font-bold w-7 flex-shrink-0', color)}>{h.overall}</span>
-                  <div className="min-w-0">
-                    <p className="truncate font-medium text-gray-700">{new URL(h.url).hostname}</p>
-                    <p className="text-gray-400">{new Date(h.fetchedAt).toLocaleDateString()}</p>
+                  )}>
+                    <button onClick={() => onSelect(h)} className="flex items-start gap-2 flex-1 min-w-0">
+                      <div className="flex items-center gap-0.5 flex-shrink-0 mt-0.5">
+                        <span className={cn('font-bold w-7', scoreColor)}>{h.score}</span>
+                        <ScoreDiff current={h.score} prev={h.prevScore} />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-gray-700">
+                          {new URL(h.url).hostname}
+                        </p>
+                        <p className="text-gray-400">
+                          {new Date(h.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                        </p>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => onRerun(h.url)}
+                      title="Re-run audit"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-gray-400 hover:text-indigo-600"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                    </button>
+                    {isActive && <ChevronRight className="w-3 h-3 text-indigo-400 flex-shrink-0 mt-0.5" />}
                   </div>
-                  {isActive && <ChevronRight className="w-3 h-3 text-indigo-400 ml-auto flex-shrink-0" />}
-                </button>
-              </li>
-            )
-          })}
-        </ul>
-      </div>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      )}
     </div>
   )
 }
 
 /* ─── Main ────────────────────────────────────────────────────────────────── */
-export default function AuditClient() {
+export default function AuditClient({ projects }: { projects: Project[] }) {
+  const supabase = createClient()
+
   const [url, setUrl] = useState('')
+  const [projectId, setProjectId] = useState('')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<AuditResult | null>(null)
+  const [activeId, setActiveId] = useState('')
   const [error, setError] = useState('')
   const [history, setHistory] = useState<HistoryEntry[]>([])
+  const [projectFilter, setProjectFilter] = useState('')
+  const [historyLoading, setHistoryLoading] = useState(true)
 
-  useEffect(() => { setHistory(loadHistory()) }, [])
+  /* ── Load history from Supabase (with localStorage fallback) ── */
+  const loadHistory = useCallback(async () => {
+    setHistoryLoading(true)
+    try {
+      const { data, error: dbErr } = await supabase
+        .from('audit_results')
+        .select('id, url, score, created_at, result, project_id')
+        .order('created_at', { ascending: false })
+        .limit(30)
 
-  async function handleAudit(e: React.FormEvent) {
-    e.preventDefault()
-    const target = url.trim().startsWith('http') ? url.trim() : `https://${url.trim()}`
+      if (dbErr) throw dbErr
+
+      // Annotate each entry with the previous score for the same URL
+      const entries: HistoryEntry[] = (data ?? []).map((row, idx, arr) => {
+        const prevEntry = arr.slice(idx + 1).find(r => r.url === row.url)
+        return { ...row, prevScore: prevEntry?.score ?? null }
+      })
+      setHistory(entries)
+    } catch {
+      // Fallback to localStorage
+      setHistory(localLoad())
+    } finally {
+      setHistoryLoading(false)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { loadHistory() }, [loadHistory])
+
+  /* ── Save to Supabase (with localStorage fallback) ── */
+  async function saveToHistory(auditResult: AuditResult) {
+    const { data: { user } } = await supabase.auth.getUser()
+
+    const entry = {
+      user_id: user?.id ?? '',
+      project_id: projectId || null,
+      url: auditResult.url,
+      result: auditResult as unknown as Record<string, unknown>,
+      score: auditResult.scores.overall,
+    }
+
+    try {
+      const { data, error: dbErr } = await supabase
+        .from('audit_results')
+        .insert(entry)
+        .select('id, url, score, created_at, result, project_id')
+        .single()
+
+      if (dbErr) throw dbErr
+
+      // Prepend to local state
+      setHistory(prev => {
+        const prevScore = prev.find(h => h.url === auditResult.url)?.score ?? null
+        return [{ ...data, prevScore }, ...prev].slice(0, 30)
+      })
+      return data.id as string
+    } catch {
+      // Offline fallback
+      const fallbackEntry: HistoryEntry = {
+        id: crypto.randomUUID(),
+        url: auditResult.url,
+        created_at: new Date().toISOString(),
+        score: auditResult.scores.overall,
+        result: auditResult,
+        project_id: projectId || null,
+      }
+      localSave(fallbackEntry)
+      setHistory(prev => [fallbackEntry, ...prev].slice(0, 30))
+      return fallbackEntry.id
+    }
+  }
+
+  async function runAudit(targetUrl: string) {
+    const normalised = targetUrl.trim().startsWith('http') ? targetUrl.trim() : `https://${targetUrl.trim()}`
     setLoading(true)
     setError('')
     setResult(null)
+    setActiveId('')
+
     try {
       const res = await fetch('/api/audit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: target }),
+        body: JSON.stringify({ url: normalised }),
       })
       if (!res.ok) throw new Error(await res.text())
       const data: AuditResult = await res.json()
       setResult(data)
-      saveToHistory(data)
-      setHistory(loadHistory())
+      const id = await saveToHistory(data)
+      setActiveId(id)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Audit failed')
     } finally {
@@ -377,10 +505,21 @@ export default function AuditClient() {
     }
   }
 
-  function selectHistory(r: AuditResult) {
-    setResult(r)
-    setUrl(r.url)
+  function handleAudit(e: React.FormEvent) {
+    e.preventDefault()
+    if (url.trim()) runAudit(url)
+  }
+
+  function selectHistory(entry: HistoryEntry) {
+    setResult(entry.result)
+    setUrl(entry.url)
+    setActiveId(entry.id)
     setError('')
+  }
+
+  function rerun(targetUrl: string) {
+    setUrl(targetUrl)
+    runAudit(targetUrl)
   }
 
   const altRatio = result
@@ -393,10 +532,13 @@ export default function AuditClient() {
     <div className="p-8">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-gray-900">SEO Audit</h1>
-        <p className="text-gray-500 mt-1 text-sm">Analyse any website and get a full SEO report with AI recommendations.</p>
+        <p className="text-gray-500 mt-1 text-sm">
+          Analyse any website and get a full SEO report with AI recommendations.
+        </p>
       </div>
 
-      <form onSubmit={handleAudit} className="flex gap-3 max-w-2xl mb-8">
+      {/* URL form */}
+      <form onSubmit={handleAudit} className="flex gap-3 max-w-2xl mb-4">
         <div className="relative flex-1">
           <Globe className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
@@ -404,9 +546,18 @@ export default function AuditClient() {
             onChange={e => setUrl(e.target.value)}
             className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
             placeholder="https://example.com"
-            type="text"
           />
         </div>
+        {projects.length > 0 && (
+          <select
+            value={projectId}
+            onChange={e => setProjectId(e.target.value)}
+            className="px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-sm text-gray-600"
+          >
+            <option value="">No project</option>
+            {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        )}
         <button
           type="submit"
           disabled={loading || !url.trim()}
@@ -423,6 +574,7 @@ export default function AuditClient() {
         </div>
       )}
 
+      {/* Skeleton loader */}
       {loading && (
         <div className="max-w-4xl space-y-4 animate-pulse">
           <div className="h-5 w-64 bg-gray-100 rounded" />
@@ -437,17 +589,23 @@ export default function AuditClient() {
         </div>
       )}
 
-      {/* Layout: sidebar + main content */}
+      {/* Main layout */}
       <div className="flex gap-6 items-start">
-        {history.length > 0 && (
+        {/* Sidebar — history */}
+        {(!historyLoading && history.length > 0) || projects.length > 0 ? (
           <HistorySidebar
             history={history}
             onSelect={selectHistory}
-            activeUrl={result?.url ?? ''}
+            onRerun={rerun}
+            activeId={activeId}
+            projectFilter={projectFilter}
+            onProjectFilter={setProjectFilter}
+            projects={projects}
           />
-        )}
+        ) : null}
 
-        {result && (
+        {/* Result panel */}
+        {result && !loading && (
           <div className="flex-1 min-w-0 space-y-5">
             {/* Audit meta */}
             <div className="flex items-center gap-2 text-xs text-gray-400">
@@ -457,6 +615,14 @@ export default function AuditClient() {
               </a>
               <span>·</span>
               <span>Audited at {new Date(result.fetchedAt).toLocaleTimeString()}</span>
+              <button
+                onClick={() => rerun(result.url)}
+                title="Re-run audit"
+                className="flex items-center gap-1 text-gray-400 hover:text-indigo-600 transition-colors ml-1"
+              >
+                <RefreshCw className="w-3 h-3" />
+                Re-run
+              </button>
             </div>
 
             {/* Score + breakdown */}
@@ -487,10 +653,8 @@ export default function AuditClient() {
               </Card>
             </div>
 
-            {/* AI Analysis — structured */}
             <AIPanel ai={result.aiAnalysis} />
 
-            {/* Stats row */}
             <div className="grid grid-cols-4 gap-3">
               <StatCard icon={AlignLeft} label="Word Count" value={result.content.wordCount.toLocaleString()}
                 sub={result.content.wordCount < 300 ? 'Too thin' : result.content.wordCount < 800 ? 'Moderate' : 'Good length'} />
@@ -504,11 +668,9 @@ export default function AuditClient() {
                 sub={result.schema.detected ? result.schema.types.slice(0, 2).join(', ') : 'No JSON-LD found'} />
             </div>
 
-            {/* Keyword density + detail grid */}
             <div className="grid grid-cols-2 gap-4">
               <KeywordPanel keywords={result.keywords} />
 
-              {/* Meta tags */}
               <Card title="Meta Tags" icon={FileText}>
                 <MetaRow label={`Title (${result.meta.titleLength})`} value={result.meta.title} status={result.scores.title.status} />
                 <MetaRow label={`Description (${result.meta.descriptionLength})`} value={result.meta.description} status={result.scores.description.status} />
@@ -518,7 +680,6 @@ export default function AuditClient() {
                 <MetaRow label="Charset" value={result.meta.charset} />
               </Card>
 
-              {/* Open Graph */}
               <Card title="Open Graph / Social" icon={Share2}>
                 <MetaRow label="OG Title" value={result.og.title} status={result.og.title ? 'good' : 'warn'} />
                 <MetaRow label="OG Description" value={result.og.description} status={result.og.description ? 'good' : 'warn'} />
@@ -526,7 +687,6 @@ export default function AuditClient() {
                 <MetaRow label="OG Type" value={result.og.type} />
               </Card>
 
-              {/* Heading structure */}
               <Card title="Heading Structure" icon={Heading1}>
                 <div className="space-y-4">
                   <div>
@@ -543,7 +703,9 @@ export default function AuditClient() {
                   </div>
                   {result.headings.h2.length > 0 && (
                     <div>
-                      <div className="text-xs font-bold text-gray-700 mb-1.5">H2 <span className="font-normal text-gray-400">({result.headings.h2.length})</span></div>
+                      <div className="text-xs font-bold text-gray-700 mb-1.5">
+                        H2 <span className="font-normal text-gray-400">({result.headings.h2.length})</span>
+                      </div>
                       <div className="flex flex-wrap">
                         {result.headings.h2.slice(0, 5).map((h, i) => <Tag key={i}>{h.slice(0, 40)}{h.length > 40 ? '…' : ''}</Tag>)}
                         {result.headings.h2.length > 5 && <Tag>+{result.headings.h2.length - 5} more</Tag>}
@@ -552,7 +714,9 @@ export default function AuditClient() {
                   )}
                   {result.headings.h3.length > 0 && (
                     <div>
-                      <div className="text-xs font-bold text-gray-700 mb-1.5">H3 <span className="font-normal text-gray-400">({result.headings.h3.length})</span></div>
+                      <div className="text-xs font-bold text-gray-700 mb-1.5">
+                        H3 <span className="font-normal text-gray-400">({result.headings.h3.length})</span>
+                      </div>
                       <div className="flex flex-wrap">
                         {result.headings.h3.slice(0, 4).map((h, i) => <Tag key={i} variant="indigo">{h.slice(0, 35)}{h.length > 35 ? '…' : ''}</Tag>)}
                         {result.headings.h3.length > 4 && <Tag>+{result.headings.h3.length - 4} more</Tag>}
@@ -562,7 +726,6 @@ export default function AuditClient() {
                 </div>
               </Card>
 
-              {/* Schema + images */}
               <Card title="Schema & Images" icon={Code2}>
                 {result.schema.detected ? (
                   <div className="mb-4">
@@ -611,8 +774,8 @@ export default function AuditClient() {
           </div>
         )}
 
-        {/* Empty state (no history) */}
-        {!loading && !result && !error && history.length === 0 && (
+        {/* Empty state */}
+        {!loading && !result && !error && (
           <div className="flex-1">
             <div className="text-center py-14 bg-white rounded-xl border border-dashed border-gray-200">
               <div className="w-14 h-14 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-4">

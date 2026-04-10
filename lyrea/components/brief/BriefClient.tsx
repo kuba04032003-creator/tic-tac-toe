@@ -57,6 +57,7 @@ export default function BriefClient({ projects }: { projects: Project[] }) {
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
   const [expandedH2s, setExpandedH2s] = useState<Set<number>>(new Set())
+  const [selectedTitle, setSelectedTitle] = useState<string | null>(null)
 
   const selectedProject = projects.find(p => p.id === projectId)
 
@@ -83,6 +84,7 @@ export default function BriefClient({ projects }: { projects: Project[] }) {
       const data = await res.json()
       setBrief(data.brief)
       setExpandedH2s(new Set(data.brief.outline.map((_: OutlineItem, i: number) => i)))
+    setSelectedTitle(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong')
     } finally {
@@ -131,8 +133,10 @@ export default function BriefClient({ projects }: { projects: Project[] }) {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  function writeFromBrief() {
+  function writeFromBrief(overrideTitle?: string) {
+    const chosenTitle = overrideTitle ?? selectedTitle ?? ''
     const params = new URLSearchParams({ keyword: keyword.trim() })
+    if (chosenTitle) params.set('title', chosenTitle)
     if (projectId) params.set('project', projectId)
     router.push(`/writer/new?${params}`)
   }
@@ -232,32 +236,68 @@ export default function BriefClient({ projects }: { projects: Project[] }) {
                 {copied ? 'Copied!' : 'Copy brief'}
               </button>
               <button
-                onClick={writeFromBrief}
+                onClick={() => writeFromBrief()}
                 className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors font-medium"
+                title={selectedTitle ? `Write: ${selectedTitle}` : 'Write article from this brief'}
               >
-                Write article <ArrowRight className="w-3.5 h-3.5" />
+                {selectedTitle ? 'Write selected' : 'Write article'}
+                <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
 
           {/* Recommended titles */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <h3 className="text-sm font-bold text-gray-900 mb-3 flex items-center gap-2">
+            <h3 className="text-sm font-bold text-gray-900 mb-1 flex items-center gap-2">
               <Target className="w-4 h-4 text-indigo-500" /> Recommended Titles
             </h3>
+            <p className="text-xs text-gray-400 mb-3">Click a title to select it, then click &ldquo;Write selected&rdquo; to generate.</p>
             <div className="space-y-2">
-              {brief.titles.map((t, i) => (
-                <div key={i} className="flex items-start gap-3 group">
-                  <span className="text-xs font-bold text-gray-400 mt-1 w-4 flex-shrink-0">{i + 1}</span>
-                  <p className="text-sm text-gray-800 font-medium flex-1">{t}</p>
-                  <button
-                    onClick={() => navigator.clipboard.writeText(t)}
-                    className="opacity-0 group-hover:opacity-100 transition-opacity"
+              {brief.titles.map((t, i) => {
+                const isSelected = selectedTitle === t
+                return (
+                  <div
+                    key={i}
+                    onClick={() => setSelectedTitle(isSelected ? null : t)}
+                    className={cn(
+                      'flex items-start gap-3 group rounded-lg px-3 py-2.5 cursor-pointer transition-all border',
+                      isSelected
+                        ? 'bg-indigo-50 border-indigo-300 ring-1 ring-indigo-200'
+                        : 'border-transparent hover:bg-gray-50 hover:border-gray-200'
+                    )}
                   >
-                    <Copy className="w-3.5 h-3.5 text-gray-400 hover:text-indigo-500" />
-                  </button>
-                </div>
-              ))}
+                    <span className={cn(
+                      'text-xs font-bold mt-0.5 w-4 flex-shrink-0',
+                      isSelected ? 'text-indigo-500' : 'text-gray-400'
+                    )}>{i + 1}</span>
+                    <p className={cn(
+                      'text-sm font-medium flex-1 leading-snug',
+                      isSelected ? 'text-indigo-900' : 'text-gray-800'
+                    )}>{t}</p>
+                    <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                      <button
+                        onClick={e => { e.stopPropagation(); navigator.clipboard.writeText(t) }}
+                        title="Copy title"
+                        className="p-1 rounded hover:bg-gray-200 transition-colors"
+                      >
+                        <Copy className="w-3 h-3 text-gray-400 hover:text-gray-600" />
+                      </button>
+                      <button
+                        onClick={e => { e.stopPropagation(); writeFromBrief(t) }}
+                        title="Write article with this title"
+                        className="flex items-center gap-0.5 text-xs text-indigo-600 hover:text-white hover:bg-indigo-600 font-medium border border-indigo-200 hover:border-indigo-600 px-2 py-0.5 rounded-md transition-all"
+                      >
+                        Write <ArrowRight className="w-3 h-3" />
+                      </button>
+                    </div>
+                    {isSelected && (
+                      <span className="flex-shrink-0 text-indigo-500 mt-0.5">
+                        <Check className="w-3.5 h-3.5" />
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
             </div>
             <div className="mt-4 pt-4 border-t border-gray-100">
               <p className="text-xs font-medium text-gray-500 mb-1">Meta Description</p>

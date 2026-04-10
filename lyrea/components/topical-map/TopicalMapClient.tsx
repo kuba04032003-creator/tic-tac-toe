@@ -93,8 +93,8 @@ export default function TopicalMapClient({ projects }: { projects: Project[] }) 
     }
   }
 
-  function writeArticle(keyword: string) {
-    const params = new URLSearchParams({ keyword })
+  function writeArticle(title: string, keyword: string) {
+    const params = new URLSearchParams({ keyword: keyword || title, title })
     if (projectId) params.set('project', projectId)
     router.push(`/writer/new?${params}`)
   }
@@ -183,10 +183,11 @@ export default function TopicalMapClient({ projects }: { projects: Project[] }) 
                 <p className="text-xs text-gray-400 mt-2">~{map.pillar.wordCount} words</p>
               </div>
               <button
-                onClick={() => writeArticle(map.pillar.keyword)}
+                onClick={() => writeArticle(map.pillar.title, map.pillar.keyword)}
+                title="Generate full article from this topic"
                 className="flex items-center gap-1.5 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors flex-shrink-0"
               >
-                Write <ArrowRight className="w-3.5 h-3.5" />
+                Write article <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
@@ -237,8 +238,9 @@ export default function TopicalMapClient({ projects }: { projects: Project[] }) 
                       <p className="text-xs text-gray-400 mt-1">~{article.wordCount} words</p>
                     </div>
                     <button
-                      onClick={() => writeArticle(article.keyword)}
-                      className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-medium opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 mt-1 whitespace-nowrap"
+                      onClick={() => writeArticle(article.title, article.keyword)}
+                      title="Generate full article from this topic"
+                      className="flex items-center gap-1 text-xs text-indigo-600 hover:text-white hover:bg-indigo-600 font-medium border border-indigo-200 hover:border-indigo-600 px-2.5 py-1 rounded-lg transition-all flex-shrink-0 mt-1 whitespace-nowrap"
                     >
                       Write <ArrowRight className="w-3 h-3" />
                     </button>
