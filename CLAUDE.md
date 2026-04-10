@@ -85,10 +85,13 @@ All tables have RLS enabled — users only access their own rows.
 - [x] Writer list — search by title/keyword, filter by status and project
 - [x] Projects list — show article count per project
 - [x] Delete article — from list (hover trash icon) and from editor (top bar)
-- [ ] Article generation streaming preview (show tokens as they arrive before redirect)
-- [ ] Rank tracking UI (API exists at `/api/rank`, page is stub)
-- [ ] SEO Audit UI (API exists at `/api/audit`, page is stub)
-- [ ] Sentence flywheel UI (API exists at `/api/sentences`, page is stub)
+- [x] Article generation streaming preview (tokens stream live before redirect)
+- [x] Rank tracking UI (/rank — manual logging with sparklines)
+- [x] SEO Audit UI (/audit — full page analysis)
+- [x] Sentence flywheel UI (/sentences — question research with AI citation scoring)
+- [x] WordPress per-project credentials (wp_url, wp_username, wp_app_password on projects table; auto-fills editor modal; editable on project detail page)
+- [ ] Sentence flywheel trending dashboard (most searched topics + most-used sentences)
+- [ ] Rank tracking — auto-fetch via Google Search Console API
 
 ## Git workflow
 
